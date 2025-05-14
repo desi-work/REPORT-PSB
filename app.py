@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 
-st.title("📄 Import Laporan TXT Pelanggan (Multi Laporan per File)")
+st.title("REPORT PSB")
 
 uploaded_files = st.file_uploader("Upload satu atau beberapa file .txt", type="txt", accept_multiple_files=True)
 
