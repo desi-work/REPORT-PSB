@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import io
+import re
 
 st.title("REPORT PSB")
 
@@ -45,6 +46,23 @@ def parse_txt_file_multiple_reports(file_content, source_file_name):
         records.append(data)
     return records
 
+# Fungsi cerdas untuk menyeragamkan format Husbel (HV, FA, ZL, LK, FT, dll)
+def standarisasi_husbel(kode):
+    if pd.isna(kode):
+        return kode
+    
+    kode = str(kode).upper() # Jadikan kapital semua
+    kode = re.sub(r'\s+', '', kode) # Hilangkan semua spasi
+    
+    # 1. Atasi tulisan dobel untuk SEMUA kode (misal: HV-HV-001, FA-FA-001)
+    kode = re.sub(r'^([A-Z]+)-\1-', r'\1-', kode)
+    
+    # 2. Tambahkan tanda hubung otomatis jika lupa (misal: FA001 jadi FA-001)
+    if '-' not in kode:
+        kode = re.sub(r'^([A-Z]+)(\d+)', r'\1-\2', kode)
+        
+    return kode
+
 if uploaded_files:
     records = []
     for uploaded_file in uploaded_files:
@@ -57,36 +75,40 @@ if uploaded_files:
     # Format Nama Pelanggan jadi kapital
     df["Nama Pelanggan"] = df["Nama Pelanggan"].str.title()
 
-    # Ubah Tanggal ke format datetime agar bisa disortir
+    # Ubah Tanggal ke format datetime
     df["Tanggal Visit"] = pd.to_datetime(df["Tanggal Visit"], dayfirst=True, errors='coerce')
 
-    # Urutkan berdasarkan Tanggal, No.hasbel, Nama Pelanggan
-    df = df.sort_values(by=["Tanggal Visit", "No.hasbel", "Nama Pelanggan"], ascending=[True, True, True])
+    # [OTOMATISASI KODE HUSBEL]
+    df["No.hasbel"] = df["No.hasbel"].apply(standarisasi_husbel)
 
-    # Reset index agar nomor urut rapi
-    df = df.reset_index(drop=True)
-
-    # Tambahkan kolom No (nomor urut dari 1)
-    df.insert(0, "No", range(1, len(df) + 1))
-
-    # Pastikan angka bisa dihitung
+    # Pastikan angka bisa dihitung (Wajib dilakukan SEBELUM sorting)
     df["Meteran Awal"] = pd.to_numeric(df["Meteran Awal"], errors='coerce')
     df["Meteran Akhir"] = pd.to_numeric(df["Meteran Akhir"], errors='coerce')
 
     # Hitung selisih (tarikan)
     df["Total Tarikan"] = df["Meteran Awal"] - df["Meteran Akhir"]
 
+    # UBAH SORTIR DISINI: Urutkan by No.hasbel, lalu Meteran Awal Terbesar ke Terkecil
+    df = df.sort_values(by=["No.hasbel", "Meteran Awal"], ascending=[True, False])
+
+    # Reset index
+    df = df.reset_index(drop=True)
+
+    # Tambahkan kolom No (nomor urut dari 1)
+    df.insert(0, "No", range(1, len(df) + 1))
+
     # Pindahkan kolom "Total Tarikan" setelah "Meteran Akhir"
     kolom_baru = df.columns.tolist()
     kolom_baru.insert(kolom_baru.index("Meteran Akhir") + 1, kolom_baru.pop(kolom_baru.index("Total Tarikan")))
     df = df[kolom_baru]
 
-    # Format tanggal jadi '10 May 2025'
+    # Format tanggal jadi '10 May 2025' (Dilakukan di akhir agar tidak mengganggu sortir)
     df["Tanggal Visit"] = df["Tanggal Visit"].dt.strftime("%d %B %Y")
 
     st.subheader("📊 Hasil Tabel")
     st.dataframe(df)
 
+    # Ekspor ke Excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False)
